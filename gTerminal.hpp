@@ -3,6 +3,7 @@
 
 #include <string>
 #include <cstdint>
+#include <list>
 
 #ifndef _WIN32
     #define GTERMINAL_API
@@ -16,6 +17,15 @@
 
 namespace gt
 {
+
+class GTERMINAL_API Element
+{
+public:
+    Element() = default;
+    ~Element() = default;
+
+    [[nodiscard]] virtual std::string render() const = 0;
+};
 
 class GTERMINAL_API Terminal
 {
