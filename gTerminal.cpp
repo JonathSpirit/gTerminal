@@ -30,8 +30,17 @@ bool Terminal::init()
     this->g_internalOutputHandle = stdOutHandle;
     this->g_internalInputHandle = stdInHandle;
 
+    CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+    if (GetConsoleScreenBufferInfo(stdOutHandle, &bufferInfo) != TRUE)
+    {
+        return false;
+    }
+
+    this->g_bufferSize._width = bufferInfo.dwSize.X;
+    this->g_bufferSize._height = bufferInfo.dwSize.Y;
+
     DWORD dwMode;
-    if (GetConsoleMode(stdOutHandle, &dwMode) == 0)
+    if (GetConsoleMode(stdOutHandle, &dwMode) != TRUE)
     {
         return false;
     }
@@ -40,6 +49,12 @@ bool Terminal::init()
 
     return SetConsoleMode(stdOutHandle, dwMode) != 0;
 #endif
+}
+
+BufferSize Terminal::getBufferSize() const
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+    return this->g_bufferSize;
 }
 
 void Terminal::addElement(std::unique_ptr<Element>&& element)
@@ -96,13 +111,18 @@ void Terminal::update()
                 }
             }
         }
+        else if (records[i].EventType == WINDOW_BUFFER_SIZE_EVENT)
+        {
+            this->g_bufferSize._width = records[i].Event.WindowBufferSizeEvent.dwSize.X;
+            this->g_bufferSize._height = records[i].Event.WindowBufferSizeEvent.dwSize.Y;
+        }
     }
 }
 void Terminal::render() const
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
 
-    std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0);
+    std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3);
     for (const auto& element : this->g_elements)
     {
         element->render();

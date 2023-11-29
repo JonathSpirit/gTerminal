@@ -43,6 +43,12 @@ struct KeyEvent
     uint32_t _controlKeyState;
 };
 
+struct BufferSize
+{
+    uint16_t _width;
+    uint16_t _height;
+};
+
 class Terminal;
 
 class Element
@@ -111,6 +117,8 @@ public:
 
     [[nodiscard]] bool init();
 
+    [[nodiscard]] BufferSize getBufferSize() const;
+
     //Output stream
     template<class ...TArgs>
     void output(std::string_view format, TArgs&&... args);
@@ -129,6 +137,8 @@ private:
 
     ElementList g_elements;
     ElementList::const_iterator g_defaultOutputStream;
+
+    BufferSize g_bufferSize{0,0};
 
     mutable std::recursive_mutex g_mutex;
 };
