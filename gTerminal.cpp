@@ -5,6 +5,9 @@
 #ifdef _WIN32
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
+#else
+    #include <unistd.h>
+    #include <sys/ioctl.h>
 #endif
 
 namespace gt
@@ -48,6 +51,26 @@ bool Terminal::init()
     dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 
     return SetConsoleMode(stdOutHandle, dwMode) != 0;
+#else
+    this->g_internalInputHandle._desc = fileno(stdin);
+    this->g_internalOutputHandle._desc = fileno(stdout);
+
+    if (this->g_internalInputHandle._desc == -1 ||
+        this->g_internalOutputHandle._desc == -1)
+    {
+        return false;
+    }
+
+    winsize w{};
+    if ( ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != 0 )
+    {
+        return false;
+    }
+
+    this->g_bufferSize._width = w.ws_col;
+    this->g_bufferSize._height = w.ws_row;
+
+    return true;
 #endif
 }
 
@@ -76,6 +99,7 @@ void Terminal::update()
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
 
+#ifdef _WIN32
     INPUT_RECORD records[10];
     DWORD read = 0;
 
@@ -117,6 +141,9 @@ void Terminal::update()
             this->g_bufferSize._height = records[i].Event.WindowBufferSizeEvent.dwSize.Y;
         }
     }
+#else
+
+#endif //_WIN32
 }
 void Terminal::render() const
 {

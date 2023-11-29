@@ -131,9 +131,14 @@ public:
 
 private:
     using ElementList = std::list<std::unique_ptr<Element> >;
+    union Handle
+    {
+        void* _ptr;
+        int _desc;
+    };
 
-    void* g_internalInputHandle{nullptr};
-    void* g_internalOutputHandle{nullptr};
+    Handle g_internalInputHandle{nullptr};
+    Handle g_internalOutputHandle{nullptr};
 
     ElementList g_elements;
     ElementList::const_iterator g_defaultOutputStream;
