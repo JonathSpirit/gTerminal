@@ -3,7 +3,7 @@ project(gTerminal)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_library(gTerminal SHARED gTerminal.cpp)
+add_library(gTerminal SHARED gTerminal.cpp gTerminal.inl)
 target_compile_definitions(gTerminal PRIVATE GTERMINAL_EXPORTS)
 
 #test

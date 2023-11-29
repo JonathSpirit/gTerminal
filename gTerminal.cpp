@@ -10,6 +10,11 @@
 namespace gt
 {
 
+Terminal::Terminal()
+{
+    this->g_defaultOutputStream = this->g_elements.end();
+}
+
 bool Terminal::init()
 {
 #ifdef _WIN32
@@ -37,14 +42,31 @@ bool Terminal::init()
 #endif
 }
 
-std::string Terminal::read()
+void Terminal::addElement(std::unique_ptr<Element>&& element)
 {
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+
+    auto& ref = this->g_elements.emplace_back(std::move(element));
+
+    ref->setTerminal(this);
+
+    if (ref->haveOutputStream() && this->g_defaultOutputStream == this->g_elements.end())
+    {
+        this->g_defaultOutputStream = this->g_elements.end();
+        --this->g_defaultOutputStream;
+    }
+}
+
+void Terminal::update()
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+
     INPUT_RECORD records[10];
     DWORD read = 0;
 
     if (WaitForSingleObject(this->g_internalInputHandle, 0) != WAIT_OBJECT_0)
     {
-        return {};
+        return;
     }
 
     auto errOut = ReadConsoleInput(this->g_internalInputHandle,
@@ -52,23 +74,73 @@ std::string Terminal::read()
 
     if (errOut == 0)
     {
-        return {};
+        return;
     }
-
-    std::string result;
 
     for (DWORD i=0; i<read; ++i)
     {
         if (records[i].EventType == KEY_EVENT)
         {
-            if (records[i].Event.KeyEvent.bKeyDown)
+            KeyEvent keyEvent{records[i].Event.KeyEvent.bKeyDown==TRUE,
+                              records[i].Event.KeyEvent.wRepeatCount,
+                              records[i].Event.KeyEvent.wVirtualKeyCode,
+                              records[i].Event.KeyEvent.wVirtualScanCode,
+                              records[i].Event.KeyEvent.uChar.AsciiChar,
+                              records[i].Event.KeyEvent.dwControlKeyState};
+
+            for (auto& element : this->g_elements)
             {
-                result.push_back(records[i].Event.KeyEvent.uChar.AsciiChar);
+                if (element->haveInputStream())
+                {
+                    element->onKeyInput(keyEvent);
+                }
             }
         }
     }
+}
+void Terminal::render() const
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
 
-    return result;
+    std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0);
+    for (const auto& element : this->g_elements)
+    {
+        element->render();
+    }
+    std::cout << std::flush;
+}
+
+void TextOutputStream::render() const
+{
+    for (const auto& str : this->g_textBuffer)
+    {
+        std::cout << str;
+    }
+}
+
+void TextOutputStream::onInput(std::string_view str)
+{
+    this->g_textBuffer.emplace_back(str);
+}
+
+void TextInputStream::render() const
+{
+    std::cout << "\n" CSI_COLOR_FG_GREEN "INPUT> " CSI_COLOR_NORMAL << this->g_inputBuffer;
+}
+
+void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
+{
+    if (keyEvent._keyDown)
+    {
+        if (keyEvent._asciiChar == '\r')
+        {
+            this->getTerminal()->output("%s\n", this->g_inputBuffer.data());
+            this->g_inputBuffer.clear();
+            return;
+        }
+
+        this->g_inputBuffer.push_back(keyEvent._asciiChar);
+    }
 }
 
 } //namespace gt
