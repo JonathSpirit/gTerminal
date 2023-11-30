@@ -209,6 +209,13 @@ void Terminal::update()
         }
     }
 #else
+    winsize w{};
+    if ( ioctl(this->g_internalOutputHandle._desc, TIOCGWINSZ, &w) == 0 )
+    {///TODO not great, I prefer events
+        this->g_bufferSize._width = w.ws_col;
+        this->g_bufferSize._height = w.ws_row;
+    }
+
     uint8_t buffer[10];
     auto result = read(this->g_internalInputHandle._desc, &buffer, 10);
     if (result == -1 || result == 0)
