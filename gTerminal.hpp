@@ -113,7 +113,7 @@ class GTERMINAL_API Terminal
 {
 public:
     Terminal();
-    ~Terminal() = default;
+    ~Terminal();
 
     [[nodiscard]] bool init();
 

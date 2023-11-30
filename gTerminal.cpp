@@ -8,15 +8,64 @@
 #else
     #include <unistd.h>
     #include <sys/ioctl.h>
+    #include <termios.h>
 #endif
 
 namespace gt
 {
 
+namespace
+{
+#ifndef _WIN32
+
+//https://viewsourcecode.org/snaptoken/kilo/02.enteringRawMode.html
+
+termios gOriginalTermios;
+
+[[nodiscard]] bool EnableRawMode(int fd)
+{
+    termios raw{};
+    if ( tcgetattr(fd, &raw) != 0 )
+    {
+        return false;
+    }
+
+    gOriginalTermios = raw;
+
+    raw.c_lflag &= ~(ECHO); //Disable echo
+    raw.c_lflag &= ~(ICANON); //Disable canonical mode
+    //raw.c_oflag &= ~(OPOST); //Disable post-processing of output
+    raw.c_cc[VMIN] = 0; //Minimum number of bytes of input needed before read() can return
+    raw.c_cc[VTIME] = 0; //Maximum amount of time to wait before read() returns
+
+    if ( tcsetattr(fd, TCSAFLUSH, &raw) != 0 )
+    {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool DisableRawMode(int fd)
+{
+    return tcsetattr(fd, TCSAFLUSH, &gOriginalTermios) == 0;
+}
+
+#endif //_WIN32
+}//namespace
+
 Terminal::Terminal()
 {
     this->g_defaultOutputStream = this->g_elements.end();
 }
+
+#ifdef _WIN32
+Terminal::~Terminal() = default;
+#else
+Terminal::~Terminal()
+{
+    (void) DisableRawMode(this->g_internalInputHandle._desc);
+}
+#endif //_WIN32
 
 bool Terminal::init()
 {
@@ -30,8 +79,8 @@ bool Terminal::init()
         return false;
     }
 
-    this->g_internalOutputHandle = stdOutHandle;
-    this->g_internalInputHandle = stdInHandle;
+    this->g_internalOutputHandle._ptr = stdOutHandle;
+    this->g_internalInputHandle._ptr = stdInHandle;
 
     CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
     if (GetConsoleScreenBufferInfo(stdOutHandle, &bufferInfo) != TRUE)
@@ -62,7 +111,7 @@ bool Terminal::init()
     }
 
     winsize w{};
-    if ( ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != 0 )
+    if ( ioctl(this->g_internalOutputHandle._desc, TIOCGWINSZ, &w) != 0 )
     {
         return false;
     }
@@ -70,7 +119,7 @@ bool Terminal::init()
     this->g_bufferSize._width = w.ws_col;
     this->g_bufferSize._height = w.ws_row;
 
-    return true;
+    return EnableRawMode(this->g_internalInputHandle._desc);
 #endif
 }
 
@@ -103,12 +152,12 @@ void Terminal::update()
     INPUT_RECORD records[10];
     DWORD read = 0;
 
-    if (WaitForSingleObject(this->g_internalInputHandle, 0) != WAIT_OBJECT_0)
+    if (WaitForSingleObject(this->g_internalInputHandle._ptr, 0) != WAIT_OBJECT_0)
     {
         return;
     }
 
-    auto errOut = ReadConsoleInput(this->g_internalInputHandle,
+    auto errOut = ReadConsoleInput(this->g_internalInputHandle._ptr,
                                    records, sizeof(records)/sizeof(INPUT_RECORD), &read);
 
     if (errOut == 0)
@@ -142,7 +191,29 @@ void Terminal::update()
         }
     }
 #else
+    uint8_t buffer[10];
+    auto result = read(this->g_internalInputHandle._desc, &buffer, 10);
+    if (result == -1 || result == 0)
+    {
+        return;
+    }
 
+    for (decltype(result) i=0; i<result; ++i)
+    {
+        auto c = static_cast<char>(buffer[i]);
+
+        KeyEvent keyEvent{true, 1,
+                          0, 0,
+                          c, 0};
+
+        for (auto& element : this->g_elements)
+        {
+            if (element->haveInputStream())
+            {
+                element->onKeyInput(keyEvent);
+            }
+        }
+    }
 #endif //_WIN32
 }
 void Terminal::render() const
@@ -179,10 +250,33 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
 {
     if (keyEvent._keyDown)
     {
+        //Enter
+#ifdef _WIN32
         if (keyEvent._asciiChar == '\r')
+#else
+        if (keyEvent._asciiChar == '\n')
+#endif //_WIN32
         {
+            if (this->g_inputBuffer.empty())
+            {
+                return;
+            }
+
             this->getTerminal()->output("%s\n", this->g_inputBuffer.data());
             this->g_inputBuffer.clear();
+            return;
+        }
+        //Backspace
+#ifdef _WIN32
+        else if (keyEvent._asciiChar == '\b')
+#else
+        else if (keyEvent._asciiChar == 127)
+#endif //_WIN32
+        {
+            if (!this->g_inputBuffer.empty())
+            {
+                this->g_inputBuffer.pop_back();
+            }
             return;
         }
 
