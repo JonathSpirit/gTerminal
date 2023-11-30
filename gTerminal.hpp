@@ -22,6 +22,10 @@
 
 #define CSI_ERASE_DISPLAY(_n) ("\x1b[" #_n "J")
 #define CSI_CURSOR_POSITION(_row, _col) ("\x1b[" #_row ";" #_col "H")
+#define CSI_CURSOR_POSITION_STREAM(_row, _col) "\x1b[" << _row << ';' << _col << 'H'
+
+#define CSI_SAVE_CURSOR_POSITION "\x1b[s"
+#define CSI_RESTORE_CURSOR_POSITION "\x1b[u"
 
 #define CSI_COLOR_NORMAL "\x1b[0m"
 #define CSI_COLOR_FG_BLACK "\x1b[30m"
@@ -30,6 +34,16 @@
 #define CSI_COLOR_BG_RED "\x1b[41m"
 #define CSI_COLOR_FG_GREEN "\x1b[32m"
 #define CSI_COLOR_BG_GREEN "\x1b[42m"
+#define CSI_COLOR_FG_YELLOW "\x1b[33m"
+#define CSI_COLOR_BG_YELLOW "\x1b[43m"
+#define CSI_COLOR_FG_BLUE "\x1b[34m"
+#define CSI_COLOR_BG_BLUE "\x1b[44m"
+#define CSI_COLOR_FG_MAGENTA "\x1b[35m"
+#define CSI_COLOR_BG_MAGENTA "\x1b[45m"
+#define CSI_COLOR_FG_CYAN "\x1b[36m"
+#define CSI_COLOR_BG_CYAN "\x1b[46m"
+#define CSI_COLOR_FG_WHITE "\x1b[37m"
+#define CSI_COLOR_BG_WHITE "\x1b[47m"
 
 namespace gt
 {
@@ -162,6 +176,26 @@ private:
     std::string g_inputBuffer;
 };
 
+class GTERMINAL_API Banner : public Element
+{
+public:
+    Banner() = default;
+    explicit Banner(std::string_view banner);
+    ~Banner() = default;
+
+    void render() const override;
+
+    void setBanner(std::string_view banner);
+    [[nodiscard]] std::string const& getBanner() const;
+
+    void setCenterFlag(bool centered);
+    [[nodiscard]] bool isCentered() const;
+
+private:
+    std::string g_banner;
+    bool g_centered{true};
+};
+
 class GTERMINAL_API Terminal
 {
 public:
@@ -170,7 +204,12 @@ public:
 
     [[nodiscard]] bool init();
 
-    [[nodiscard]] BufferSize getBufferSize() const;
+    //Control
+    [[nodiscard]] BufferSize getTerminalBufferSize() const;
+
+    void clearTerminalBuffer();
+    void saveCursorPosition();
+    void restoreCursorPosition();
 
     //Output stream
     template<class ...TArgs>
@@ -183,6 +222,9 @@ public:
 
     void update();
     void render() const;
+
+    void setRowOffset(uint16_t offset);
+    [[nodiscard]] uint16_t getRowOffset() const;
 
 private:
     using ElementList = std::list<std::unique_ptr<Element> >;
@@ -199,6 +241,8 @@ private:
     ElementList::const_iterator g_defaultOutputStream;
 
     BufferSize g_bufferSize{0,0};
+
+    uint16_t g_rowOffset{0};
 
     mutable std::recursive_mutex g_mutex;
 };

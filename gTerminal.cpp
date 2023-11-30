@@ -123,10 +123,26 @@ bool Terminal::init()
 #endif
 }
 
-BufferSize Terminal::getBufferSize() const
+BufferSize Terminal::getTerminalBufferSize() const
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
     return this->g_bufferSize;
+}
+
+void Terminal::clearTerminalBuffer()
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+    std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3) << std::flush;
+}
+void Terminal::saveCursorPosition()
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+    std::cout << CSI_SAVE_CURSOR_POSITION << std::flush;
+}
+void Terminal::restoreCursorPosition()
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+    std::cout << CSI_RESTORE_CURSOR_POSITION << std::flush;
 }
 
 Element* Terminal::addElement(std::unique_ptr<Element>&& element)
@@ -223,11 +239,25 @@ void Terminal::render() const
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
 
     std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3);
+    if (this->g_rowOffset > 0)
+    {
+        std::cout << CSI_CURSOR_POSITION_STREAM(this->g_rowOffset+1, 1);
+    }
+
     for (const auto& element : this->g_elements)
     {
         element->render();
     }
     std::cout << std::flush;
+}
+
+void Terminal::setRowOffset(uint16_t offset)
+{
+    this->g_rowOffset = offset;
+}
+uint16_t Terminal::getRowOffset() const
+{
+    return this->g_rowOffset;
 }
 
 void TextOutputStream::render() const
@@ -245,7 +275,7 @@ void TextOutputStream::onInput(std::string_view str)
 
 void TextInputStream::render() const
 {
-    std::cout << "\n" CSI_COLOR_FG_GREEN "INPUT> " CSI_COLOR_NORMAL << this->g_inputBuffer;
+    std::cout << CSI_COLOR_FG_GREEN "INPUT> " CSI_COLOR_NORMAL << this->g_inputBuffer;
 }
 
 void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
@@ -264,7 +294,7 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
                 return;
             }
 
-            this->getTerminal()->output("%s\n", this->g_inputBuffer.data());
+            this->getTerminal()->output("%s\n", this->g_inputBuffer.c_str());
 
             this->_onInput.call(this->g_inputBuffer);
             this->g_inputBuffer.clear();
@@ -283,9 +313,54 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
             }
             return;
         }
+        //Unhandled control
+        else if (iscntrl(keyEvent._asciiChar) != 0)
+        {
+            return;
+        }
 
         this->g_inputBuffer.push_back(keyEvent._asciiChar);
     }
+}
+
+Banner::Banner(std::string_view banner) :
+        g_banner{banner}
+{}
+
+void Banner::render() const
+{
+    this->getTerminal()->saveCursorPosition();
+    if (this->g_centered)
+    {
+        auto size = this->getTerminal()->getTerminalBufferSize();
+        unsigned int col = this->g_banner.size() >= size._width ? 1 : ((size._width - this->g_banner.size())/2 + 1);
+        std::cout << CSI_CURSOR_POSITION_STREAM(1, col);
+    }
+    else
+    {
+        std::cout << CSI_CURSOR_POSITION(1, 1);
+    }
+    std::cout << CSI_COLOR_BG_WHITE << CSI_COLOR_FG_BLACK;
+    std::cout << ' ' << this->g_banner << ' ' << CSI_COLOR_NORMAL;
+    this->getTerminal()->restoreCursorPosition();
+}
+
+void Banner::setBanner(std::string_view banner)
+{
+    this->g_banner = banner;
+}
+std::string const& Banner::getBanner() const
+{
+    return this->g_banner;
+}
+
+void Banner::setCenterFlag(bool centered)
+{
+    this->g_centered = centered;
+}
+bool Banner::isCentered() const
+{
+    return this->g_centered;
 }
 
 } //namespace gt

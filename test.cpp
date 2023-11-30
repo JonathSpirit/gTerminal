@@ -33,6 +33,9 @@ int main(int argc, char** argv)
             gRunning = false;
         }
     });
+    terminal.addElement<gt::Banner>("This is a test program ! With an interactive, thread safe terminal");
+
+    terminal.setRowOffset(1);
 
     std::thread thread1(threadTest, &terminal);
     std::thread thread2(threadTest, &terminal);
