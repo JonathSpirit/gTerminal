@@ -8,6 +8,7 @@
 #include <list>
 #include <vector>
 #include <mutex>
+#include <functional>
 
 #ifndef _WIN32
     #define GTERMINAL_API
@@ -51,6 +52,55 @@ struct BufferSize
 
 class Terminal;
 
+template<class ...TArgs>
+class CallbackHandler
+{
+public:
+    CallbackHandler() = default;
+    ~CallbackHandler() = default;
+
+    inline void add(std::function<void(TArgs...)> callback, void* owner=nullptr)
+    {
+        this->g_callbacks.emplace_back(std::move(callback), owner);
+    }
+    inline void remove(void* owner)
+    {
+        for (auto const& callback : this->g_callbacks)
+        {
+            if (callback._owner == owner)
+            {
+                this->g_callbacks.erase(callback);
+                return;
+            }
+        }
+    }
+    inline void clear()
+    {
+        this->g_callbacks.clear();
+    }
+
+    inline void call(TArgs&&... args) const
+    {
+        for (auto const& callback : this->g_callbacks)
+        {
+            callback._callback(std::forward<TArgs>(args)...);
+        }
+    }
+
+private:
+    struct Callback
+    {
+        inline Callback(std::function<void(TArgs...)>&& callback, void* owner):
+                _callback(std::move(callback)),
+                _owner(owner)
+        {}
+
+        std::function<void(TArgs...)> _callback;
+        void* _owner;
+    };
+    std::vector<Callback> g_callbacks;
+};
+
 class Element
 {
 public:
@@ -63,8 +113,8 @@ public:
     [[nodiscard]] inline virtual bool haveInputStream() const { return false; }
 
     //Event
-    inline virtual void onInput(std::string_view str) {}
-    inline virtual void onKeyInput(KeyEvent const& keyEvent) {}
+    inline virtual void onInput([[maybe_unused]] std::string_view str) {}
+    inline virtual void onKeyInput([[maybe_unused]] KeyEvent const& keyEvent) {}
 
     [[nodiscard]] inline Terminal* getTerminal() const { return this->g_terminal; }
 
@@ -105,6 +155,9 @@ public:
     //Event
     void onKeyInput(KeyEvent const& keyEvent) override;
 
+    //Callback
+    CallbackHandler<std::string_view> _onInput;
+
 private:
     std::string g_inputBuffer;
 };
@@ -124,7 +177,9 @@ public:
     void output(std::string_view format, TArgs&&... args);
 
     //Element
-    void addElement(std::unique_ptr<Element>&& element);
+    Element* addElement(std::unique_ptr<Element>&& element);
+    template<class TElement, class ...TArgs>
+    TElement* addElement(TArgs&&... args);
 
     void update();
     void render() const;

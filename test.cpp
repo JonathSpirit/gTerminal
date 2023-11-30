@@ -25,22 +25,26 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    terminal.addElement(std::make_unique<gt::TextOutputStream>());
-    terminal.addElement(std::make_unique<gt::TextInputStream>());
+    terminal.addElement<gt::TextOutputStream>();
+    terminal.addElement<gt::TextInputStream>()->_onInput.add([](std::string_view str)
+    {
+        if (str == "exit" || str == "quit")
+        {
+            gRunning = false;
+        }
+    });
 
     std::thread thread1(threadTest, &terminal);
     std::thread thread2(threadTest, &terminal);
 
-    while(1)
+    while(gRunning)
     {
         terminal.update();
 
         terminal.render();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-
-    gRunning = false;
 
     thread1.join();
     thread2.join();

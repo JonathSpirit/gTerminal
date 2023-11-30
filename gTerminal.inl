@@ -32,4 +32,10 @@ void Terminal::output(std::string_view format, TArgs&&... args)
     this->g_defaultOutputStream->get()->onInput(str);
 }
 
+template<class TElement, class ...TArgs>
+TElement* Terminal::addElement(TArgs&&... args)
+{
+    return static_cast<TElement*>(this->addElement(std::make_unique<TElement>(std::forward<TArgs>(args)...)));
+}
+
 } //namespace gt

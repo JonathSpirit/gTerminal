@@ -129,7 +129,7 @@ BufferSize Terminal::getBufferSize() const
     return this->g_bufferSize;
 }
 
-void Terminal::addElement(std::unique_ptr<Element>&& element)
+Element* Terminal::addElement(std::unique_ptr<Element>&& element)
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
 
@@ -142,6 +142,8 @@ void Terminal::addElement(std::unique_ptr<Element>&& element)
         this->g_defaultOutputStream = this->g_elements.end();
         --this->g_defaultOutputStream;
     }
+
+    return ref.get();
 }
 
 void Terminal::update()
@@ -263,6 +265,8 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
             }
 
             this->getTerminal()->output("%s\n", this->g_inputBuffer.data());
+
+            this->_onInput.call(this->g_inputBuffer);
             this->g_inputBuffer.clear();
             return;
         }
