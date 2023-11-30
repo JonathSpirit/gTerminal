@@ -149,11 +149,17 @@ public:
 
     [[nodiscard]] inline bool haveOutputStream() const override { return true; }
 
+    void setBufferLimit(std::size_t limit);
+    [[nodiscard]] std::size_t getBufferLimit() const;
+
+    void clear();
+
     //Event
     void onInput(std::string_view str) override;
 
 private:
     std::vector<std::string> g_textBuffer;
+    std::size_t g_bufferLimit{0};
 };
 
 class GTERMINAL_API TextInputStream : public Element

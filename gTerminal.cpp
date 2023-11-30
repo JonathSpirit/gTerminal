@@ -268,9 +268,28 @@ void TextOutputStream::render() const
     }
 }
 
+void TextOutputStream::setBufferLimit(std::size_t limit)
+{
+    this->g_bufferLimit = limit;
+}
+std::size_t TextOutputStream::getBufferLimit() const
+{
+    return this->g_bufferLimit;
+}
+
+void TextOutputStream::clear()
+{
+    this->g_textBuffer.clear();
+}
+
 void TextOutputStream::onInput(std::string_view str)
 {
     this->g_textBuffer.emplace_back(str);
+    if (this->g_bufferLimit != 0 &&
+        this->g_textBuffer.size() > this->g_bufferLimit)
+    {
+        this->g_textBuffer.erase(this->g_textBuffer.begin());
+    }
 }
 
 void TextInputStream::render() const

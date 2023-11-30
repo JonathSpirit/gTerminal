@@ -7,10 +7,11 @@ volatile bool gRunning = true;
 void threadTest(gt::Terminal* terminal)
 {
     unsigned int count = 0;
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
     while (gRunning)
     {
-        terminal->output("Thread test %u\n", count++);
+        terminal->output("Thread (%u) test %u\n", id, count++);
         std::this_thread::sleep_for(std::chrono::milliseconds(800));
     }
 }
@@ -25,7 +26,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    terminal.addElement<gt::TextOutputStream>();
+    terminal.addElement<gt::TextOutputStream>()->setBufferLimit(20);
     terminal.addElement<gt::TextInputStream>()->_onInput.add([](std::string_view str)
     {
         if (str == "exit" || str == "quit")
