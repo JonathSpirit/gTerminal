@@ -1,6 +1,6 @@
 /*
  * MIT License
- * Copyright (c) 2023 Guillaume Guillet
+ * Copyright (c) 2024 Guillaume Guillet
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -142,7 +142,7 @@ class Element
 {
 public:
     Element() = default;
-    ~Element() = default;
+    virtual ~Element() = default;
 
     inline virtual void render() const {}
 
@@ -166,7 +166,7 @@ class GTERMINAL_API TextOutputStream : public Element
 {
 public:
     TextOutputStream() = default;
-    ~TextOutputStream() = default;
+    ~TextOutputStream() override = default;
 
     void render() const override;
 
@@ -189,7 +189,7 @@ class GTERMINAL_API TextInputStream : public Element
 {
 public:
     TextInputStream() = default;
-    ~TextInputStream() = default;
+    ~TextInputStream() override = default;
 
     void render() const override;
 
@@ -210,7 +210,7 @@ class GTERMINAL_API Banner : public Element
 public:
     Banner() = default;
     explicit Banner(std::string_view banner);
-    ~Banner() = default;
+    ~Banner() override = default;
 
     void render() const override;
 
