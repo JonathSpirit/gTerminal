@@ -156,6 +156,7 @@ void Terminal::clearTerminalBuffer()
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
     std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3) << std::flush;
+    this->invalidate();
 }
 void Terminal::saveCursorPosition()
 {
@@ -182,6 +183,7 @@ Element* Terminal::addElement(std::unique_ptr<Element>&& element)
         --this->g_defaultOutputStream;
     }
 
+    this->invalidate();
     return ref.get();
 }
 
@@ -227,16 +229,35 @@ void Terminal::update()
         }
         else if (records[i].EventType == WINDOW_BUFFER_SIZE_EVENT)
         {
-            this->g_bufferSize._width = records[i].Event.WindowBufferSizeEvent.dwSize.X;
-            this->g_bufferSize._height = records[i].Event.WindowBufferSizeEvent.dwSize.Y;
+            BufferSize newSize = {static_cast<BufferSize::ValueType>(records[i].Event.WindowBufferSizeEvent.dwSize.X),
+                                  static_cast<BufferSize::ValueType>(records[i].Event.WindowBufferSizeEvent.dwSize.Y)};
+
+            if (newSize != this->g_bufferSize)
+            {
+                this->g_bufferSize = newSize;
+                for (auto& element : this->g_elements)
+                {
+                    element->onSizeChanged(this->g_bufferSize);
+                    this->invalidate();
+                }
+            }
         }
     }
 #else
     winsize w{};
     if ( ioctl(this->g_internalOutputHandle._desc, TIOCGWINSZ, &w) == 0 )
     {///TODO not great, I prefer events
-        this->g_bufferSize._width = w.ws_col;
-        this->g_bufferSize._height = w.ws_row;
+        BufferSize newSize = {static_cast<BufferSize::ValueType>(w.ws_col),
+            static_cast<BufferSize::ValueType>(w.ws_row};
+
+        if (newSize != this->g_bufferSize)
+        {
+            this->g_bufferSize = newSize;
+            for (auto& element : this->g_elements)
+            {
+                element->onSizeChanged(this->g_bufferSize);
+            }
+        }
     }
 
     uint8_t buffer[10];
@@ -268,6 +289,12 @@ void Terminal::render() const
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
 
+    if (!this->g_invalidRender)
+    {
+        return;
+    }
+    this->g_invalidRender = false;
+
     std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3);
     if (this->g_rowOffset > 0)
     {
@@ -279,6 +306,11 @@ void Terminal::render() const
         element->render();
     }
     std::cout << std::flush;
+}
+void Terminal::invalidate() const
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+    this->g_invalidRender = true;
 }
 
 void Terminal::setRowOffset(uint16_t offset)
@@ -310,6 +342,7 @@ std::size_t TextOutputStream::getBufferLimit() const
 void TextOutputStream::clear()
 {
     this->g_textBuffer.clear();
+    this->getTerminal()->invalidate();
 }
 
 void TextOutputStream::onInput(std::string_view str)
@@ -320,6 +353,7 @@ void TextOutputStream::onInput(std::string_view str)
     {
         this->g_textBuffer.erase(this->g_textBuffer.begin());
     }
+    this->getTerminal()->invalidate();
 }
 
 void TextInputStream::render() const
@@ -347,6 +381,7 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
 
             this->_onInput.call(this->g_inputBuffer);
             this->g_inputBuffer.clear();
+            this->getTerminal()->invalidate();
             return;
         }
         //Backspace
@@ -359,6 +394,7 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
             if (!this->g_inputBuffer.empty())
             {
                 this->g_inputBuffer.pop_back();
+                this->getTerminal()->invalidate();
             }
             return;
         }
@@ -369,6 +405,7 @@ void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
         }
 
         this->g_inputBuffer.push_back(keyEvent._asciiChar);
+        this->getTerminal()->invalidate();
     }
 }
 
@@ -397,6 +434,7 @@ void Banner::render() const
 void Banner::setBanner(std::string_view banner)
 {
     this->g_banner = banner;
+    this->getTerminal()->invalidate();
 }
 std::string const& Banner::getBanner() const
 {
@@ -406,6 +444,7 @@ std::string const& Banner::getBanner() const
 void Banner::setCenterFlag(bool centered)
 {
     this->g_centered = centered;
+    this->getTerminal()->invalidate();
 }
 bool Banner::isCentered() const
 {

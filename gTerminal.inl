@@ -39,8 +39,6 @@ void Terminal::output(std::string_view format, TArgs&&... args)
         return;
     }
 
-    std::string str;
-
     auto size = std::snprintf(nullptr, 0, format.data(), std::forward<TArgs>(args)...);
 
     if (size == 0)
@@ -48,7 +46,7 @@ void Terminal::output(std::string_view format, TArgs&&... args)
         return;
     }
 
-    str.resize(size+1);
+    std::string str(size+1, '\0');
 
     std::snprintf(str.data(), str.size(), format.data(), std::forward<TArgs>(args)...);
 

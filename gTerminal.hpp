@@ -83,8 +83,18 @@ struct KeyEvent
 
 struct BufferSize
 {
-    uint16_t _width;
-    uint16_t _height;
+    using ValueType = uint16_t;
+    ValueType _width;
+    ValueType _height;
+
+    [[nodiscard]] constexpr bool operator==(BufferSize const& other) const
+    {
+        return this->_width == other._width && this->_height == other._height;
+    }
+    [[nodiscard]] constexpr bool operator!=(BufferSize const& other) const
+    {
+        return !(*this == other);
+    }
 };
 
 class Terminal;
@@ -152,6 +162,7 @@ public:
     //Event
     inline virtual void onInput([[maybe_unused]] std::string_view str) {}
     inline virtual void onKeyInput([[maybe_unused]] KeyEvent const& keyEvent) {}
+    inline virtual void onSizeChanged([[maybe_unused]] BufferSize size) {}
 
     [[nodiscard]] inline Terminal* getTerminal() const { return this->g_terminal; }
 
@@ -251,6 +262,7 @@ public:
 
     void update();
     void render() const;
+    void invalidate() const;
 
     void setRowOffset(uint16_t offset);
     [[nodiscard]] uint16_t getRowOffset() const;
@@ -262,6 +274,8 @@ private:
         void* _ptr;
         int _desc;
     };
+
+    mutable bool g_invalidRender{true};
 
     Handle g_internalInputHandle{nullptr};
     Handle g_internalOutputHandle{nullptr};
