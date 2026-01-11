@@ -1,6 +1,6 @@
 /*
  * MIT License
- * Copyright (c) 2024 Guillaume Guillet
+ * Copyright (c) 2026 Guillaume Guillet
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,6 +32,7 @@
 #include <vector>
 #include <mutex>
 #include <functional>
+#include <ostream>
 
 #ifndef _WIN32
     #define GTERMINAL_API
@@ -154,7 +155,7 @@ public:
     Element() = default;
     virtual ~Element() = default;
 
-    inline virtual void render() const {}
+    inline virtual void render(std::ostream&) const {}
 
     [[nodiscard]] inline virtual bool haveOutputStream() const { return false; }
     [[nodiscard]] inline virtual bool haveInputStream() const { return false; }
@@ -179,7 +180,7 @@ public:
     TextOutputStream() = default;
     ~TextOutputStream() override = default;
 
-    void render() const override;
+    void render(std::ostream& stream) const override;
 
     [[nodiscard]] inline bool haveOutputStream() const override { return true; }
 
@@ -202,7 +203,7 @@ public:
     TextInputStream() = default;
     ~TextInputStream() override = default;
 
-    void render() const override;
+    void render(std::ostream& stream) const override;
 
     [[nodiscard]] inline bool haveInputStream() const override { return true; }
 
@@ -223,7 +224,7 @@ public:
     explicit Banner(std::string_view banner);
     ~Banner() override = default;
 
-    void render() const override;
+    void render(std::ostream& stream) const override;
 
     void setBanner(std::string_view banner);
     [[nodiscard]] std::string const& getBanner() const;
@@ -243,6 +244,8 @@ public:
     ~Terminal();
 
     [[nodiscard]] bool init();
+    bool redirectStandardOutputStream();
+    void restoreStandardOutputStream();
 
     //Control
     [[nodiscard]] BufferSize getTerminalBufferSize() const;
@@ -253,7 +256,7 @@ public:
 
     //Output stream
     template<class ...TArgs>
-    void output(std::string_view format, TArgs&&... args);
+    void output(std::string const& format, TArgs&&... args);
 
     //Element
     Element* addElement(std::unique_ptr<Element>&& element);
@@ -286,6 +289,10 @@ private:
     BufferSize g_bufferSize{0,0};
 
     uint16_t g_rowOffset{0};
+
+    std::streambuf* g_oldStdoutBuffer{nullptr};
+    std::unique_ptr<std::streambuf> g_newStdoutBuffer{nullptr};
+    mutable std::ostream g_internalOutputStream{nullptr};
 
     mutable std::recursive_mutex g_mutex;
 };

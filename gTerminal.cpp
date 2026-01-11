@@ -1,6 +1,6 @@
 /*
  * MIT License
- * Copyright (c) 2024 Guillaume Guillet
+ * Copyright (c) 2026 Guillaume Guillet
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -36,6 +36,161 @@
 
 namespace gt
 {
+
+class StreambufRedirect : public std::streambuf
+{
+public:
+    explicit StreambufRedirect(Terminal* terminalPtr) :
+        g_buffer(1024, '\0'),
+        g_pos(0),
+        g_streamSize(0),
+        g_terminalPtr(terminalPtr)
+    {}
+    ~StreambufRedirect() override = default;
+
+    std::streampos seekoff (std::streamoff off, std::ios_base::seekdir way, std::ios_base::openmode which) override
+    {
+        std::scoped_lock const lock(this->g_mutex);
+
+        if (which != std::ios_base::out)
+        {
+            return {static_cast<std::streamoff>(-1)};
+        }
+
+        switch (way)
+        {
+            case std::_S_beg:
+                if (off < this->g_streamSize && off >= 0)
+                {
+                    this->g_pos = off;
+                    return this->g_pos;
+                }
+                break;
+            case std::_S_cur:
+                if (this->g_pos+off < this->g_streamSize && this->g_pos + off >= 0)
+                {
+                    this->g_pos += off;
+                    return this->g_pos;
+                }
+                break;
+            case std::_S_end:
+                if (this->g_streamSize - 1 + off < static_cast<std::streamsize>(this->g_buffer.size()) && this->g_streamSize - 1 + off >= 0)
+                {
+                    this->g_pos = static_cast<std::streamsize>(this->g_buffer.size()) - 1 + off;
+                    return this->g_pos;
+                }
+                break;
+            default:
+                break;
+        }
+
+        return {static_cast<std::streamoff>(-1)};
+    }
+    std::streampos seekpos (std::streampos sp, std::ios_base::openmode which) override
+    {
+        std::scoped_lock const lock(this->g_mutex);
+
+        if (which != std::ios_base::out)
+        {
+            return static_cast<std::streamoff>(-1);
+        }
+
+        if (sp < this->g_streamSize && sp >= 0)
+        {
+            this->g_pos = sp;
+            return this->g_pos;
+        }
+
+        return static_cast<std::streamoff>(-1);
+    }
+    int sync() override
+    {
+        std::scoped_lock const lock(this->g_mutex);
+
+        std::streampos pos = 0;
+
+        for (std::streamsize i=0; i<this->g_streamSize; ++i)
+        {
+            if (this->g_buffer[i] == '\n')
+            {
+                std::string str(this->g_buffer.data()+pos, i+1-pos);
+                this->g_terminalPtr->output(str);
+
+                this->g_buffer[i] = '\0';
+                pos = i+1;
+            }
+        }
+
+        this->g_streamSize = 0;
+        this->g_pos = 0;
+        return 0;
+    }
+
+    std::streamsize xsputn (const char* s, std::streamsize n) override
+    {
+        std::scoped_lock const lock(this->g_mutex);
+
+        bool needSync = false;
+        std::streamsize count = 0;
+
+        while (this->g_pos < static_cast<std::streamoff>(this->g_buffer.size()) && count < n)
+        {
+            this->g_buffer[this->g_pos] = s[count];
+            this->g_pos += 1;
+
+            if ( s[count++] == '\n' )
+            {
+                needSync = true;
+            }
+        }
+
+        if (this->g_pos > this->g_streamSize)
+        {
+            this->g_streamSize = static_cast<std::streamsize>(this->g_pos);
+        }
+
+        if (needSync)
+        {
+            this->sync();
+        }
+
+        return count;
+    }
+    int overflow (int c) override
+    {
+        std::scoped_lock const lock(this->g_mutex);
+
+        if (c == traits_type::eof())
+        {
+            return traits_type::not_eof(0);
+        }
+
+        if ( this->g_pos >= static_cast<std::streamoff>(this->g_buffer.size()) )
+        {
+            return traits_type::eof();
+        }
+
+        this->g_buffer[this->g_pos] = traits_type::to_char_type(c);
+        this->g_pos+=1;
+        if (this->g_pos > this->g_streamSize)
+        {
+            this->g_streamSize = static_cast<std::streamsize>(this->g_pos);
+        }
+
+        if (traits_type::to_char_type(c) == '\n')
+        {
+            this->sync();
+        }
+        return c;
+    }
+
+private:
+    std::recursive_mutex g_mutex;
+    std::vector<char> g_buffer;
+    std::streampos g_pos;
+    std::streamsize g_streamSize;
+    Terminal* g_terminalPtr;
+};
 
 namespace
 {
@@ -79,13 +234,18 @@ termios gOriginalTermios;
 Terminal::Terminal()
 {
     this->g_defaultOutputStream = this->g_elements.end();
+    this->g_internalOutputStream.rdbuf(std::cout.rdbuf());
 }
 
 #ifdef _WIN32
-Terminal::~Terminal() = default;
+Terminal::~Terminal()
+{
+    this->restoreStandardOutputStream();
+}
 #else
 Terminal::~Terminal()
 {
+    this->restoreStandardOutputStream();
     (void) DisableRawMode(this->g_internalInputHandle._desc);
 }
 #endif //_WIN32
@@ -146,6 +306,35 @@ bool Terminal::init()
 #endif
 }
 
+bool Terminal::redirectStandardOutputStream()
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+
+    if (this->g_newStdoutBuffer != nullptr)
+    {
+        return false;
+    }
+
+    this->g_oldStdoutBuffer = std::cout.rdbuf();
+    this->g_newStdoutBuffer = std::make_unique<StreambufRedirect>(this);
+    std::cout.rdbuf(this->g_newStdoutBuffer.get());
+
+    return true;
+}
+void Terminal::restoreStandardOutputStream()
+{
+    std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
+
+    if (this->g_newStdoutBuffer == nullptr)
+    {
+        return;
+    }
+
+    std::cout.rdbuf(this->g_oldStdoutBuffer);
+    this->g_newStdoutBuffer = nullptr;
+    this->g_oldStdoutBuffer = nullptr;
+}
+
 BufferSize Terminal::getTerminalBufferSize() const
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
@@ -155,18 +344,18 @@ BufferSize Terminal::getTerminalBufferSize() const
 void Terminal::clearTerminalBuffer()
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
-    std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3) << std::flush;
+    this->g_internalOutputStream << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3) << std::flush;
     this->invalidate();
 }
 void Terminal::saveCursorPosition()
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
-    std::cout << CSI_SAVE_CURSOR_POSITION << std::flush;
+    this->g_internalOutputStream << CSI_SAVE_CURSOR_POSITION << std::flush;
 }
 void Terminal::restoreCursorPosition()
 {
     std::lock_guard<std::recursive_mutex> const lock(this->g_mutex);
-    std::cout << CSI_RESTORE_CURSOR_POSITION << std::flush;
+    this->g_internalOutputStream << CSI_RESTORE_CURSOR_POSITION << std::flush;
 }
 
 Element* Terminal::addElement(std::unique_ptr<Element>&& element)
@@ -295,17 +484,17 @@ void Terminal::render() const
     }
     this->g_invalidRender = false;
 
-    std::cout << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3);
+    this->g_internalOutputStream << CSI_CURSOR_POSITION(1, 1) << CSI_ERASE_DISPLAY(0) << CSI_ERASE_DISPLAY(3);
     if (this->g_rowOffset > 0)
     {
-        std::cout << CSI_CURSOR_POSITION_STREAM(this->g_rowOffset+1, 1);
+        this->g_internalOutputStream << CSI_CURSOR_POSITION_STREAM(this->g_rowOffset+1, 1);
     }
 
     for (const auto& element : this->g_elements)
     {
-        element->render();
+        element->render(this->g_internalOutputStream);
     }
-    std::cout << std::flush;
+    this->g_internalOutputStream << std::flush;
 }
 void Terminal::invalidate() const
 {
@@ -322,11 +511,11 @@ uint16_t Terminal::getRowOffset() const
     return this->g_rowOffset;
 }
 
-void TextOutputStream::render() const
+void TextOutputStream::render(std::ostream& stream) const
 {
     for (const auto& str : this->g_textBuffer)
     {
-        std::cout << str;
+        stream << str;
     }
 }
 
@@ -356,9 +545,9 @@ void TextOutputStream::onInput(std::string_view str)
     this->getTerminal()->invalidate();
 }
 
-void TextInputStream::render() const
+void TextInputStream::render(std::ostream& stream) const
 {
-    std::cout << CSI_COLOR_FG_GREEN "INPUT> " CSI_COLOR_NORMAL << this->g_inputBuffer;
+    stream << CSI_COLOR_FG_GREEN "INPUT> " CSI_COLOR_NORMAL << this->g_inputBuffer;
 }
 
 void TextInputStream::onKeyInput(KeyEvent const& keyEvent)
@@ -413,21 +602,21 @@ Banner::Banner(std::string_view banner) :
         g_banner{banner}
 {}
 
-void Banner::render() const
+void Banner::render(std::ostream& stream) const
 {
     this->getTerminal()->saveCursorPosition();
     if (this->g_centered)
     {
         auto size = this->getTerminal()->getTerminalBufferSize();
         unsigned int col = this->g_banner.size() >= size._width ? 1 : ((size._width - this->g_banner.size())/2 + 1);
-        std::cout << CSI_CURSOR_POSITION_STREAM(1, col);
+        stream << CSI_CURSOR_POSITION_STREAM(1, col);
     }
     else
     {
-        std::cout << CSI_CURSOR_POSITION(1, 1);
+        stream << CSI_CURSOR_POSITION(1, 1);
     }
-    std::cout << CSI_COLOR_BG_WHITE << CSI_COLOR_FG_BLACK;
-    std::cout << ' ' << this->g_banner << ' ' << CSI_COLOR_NORMAL;
+    stream << CSI_COLOR_BG_WHITE << CSI_COLOR_FG_BLACK;
+    stream << ' ' << this->g_banner << ' ' << CSI_COLOR_NORMAL;
     this->getTerminal()->restoreCursorPosition();
 }
 

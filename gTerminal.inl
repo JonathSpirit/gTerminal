@@ -1,6 +1,6 @@
 /*
  * MIT License
- * Copyright (c) 2024 Guillaume Guillet
+ * Copyright (c) 2026 Guillaume Guillet
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,7 @@ namespace gt
 {
 
 template<class ...TArgs>
-void Terminal::output(std::string_view format, TArgs&&... args)
+void Terminal::output(std::string const& format, TArgs&&... args)
 {
     if (format.empty())
     {
@@ -39,7 +39,7 @@ void Terminal::output(std::string_view format, TArgs&&... args)
         return;
     }
 
-    auto size = std::snprintf(nullptr, 0, format.data(), std::forward<TArgs>(args)...);
+    auto size = std::snprintf(nullptr, 0, format.c_str(), std::forward<TArgs>(args)...);
 
     if (size == 0)
     {
@@ -47,8 +47,7 @@ void Terminal::output(std::string_view format, TArgs&&... args)
     }
 
     std::string str(size+1, '\0');
-
-    std::snprintf(str.data(), str.size(), format.data(), std::forward<TArgs>(args)...);
+    std::snprintf(str.data(), str.size(), format.c_str(), std::forward<TArgs>(args)...);
 
     this->g_defaultOutputStream->get()->onInput(str);
 }
